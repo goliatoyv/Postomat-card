@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Аналітика Поштоматів — Нова Пошта</title>
+
+<!-- ============================================================
+     ЗОВНІШНІ ЗАЛЕЖНОСТІ (CDN) — для повної автономності прототипу
+     Tailwind CSS, FontAwesome (іконки), Chart.js (графіки)
+============================================================ -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+  // Кастомна тема Tailwind під бренд Нової Пошти (графіт + червоний)
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          np: {
+            red:    '#DA291C',   // фірмовий червоний
+            red2:   '#B71C12',
+            graphite:'#2B2B2B',   // графітовий текст
+            ink:    '#1E1E1E',
+            slate:  '#5A5F66',
+            line:   '#E6E8EB',
+            bg:     '#F4F5F7',
+            panel:  '#FFFFFF',
+          }
+        },
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+      }
+    }
+  }
+</script>
+
+<style>
+  /* ---- Базова типографіка / скрол ---- */
+  html, body { height: 100%; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: #F4F5F7; color: #2B2B2B; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cfd3d8; border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- Плавне відкриття правої панелі ---- */
+  .detail-enter { animation: slideIn .35s cubic-bezier(.16,.84,.44,1); }
+  @keyframes slideIn { from { opacity:0; transform: translateX(24px);} to {opacity:1; transform:none;} }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
+
+  /* ---- Гео-сітка на карті ---- */
+  .geo-cell {
+    transition: opacity .18s ease, transform .12s ease, stroke-width .12s ease;
+    cursor: pointer;
+  }
+  .geo-cell:hover { stroke: #2B2B2B; stroke-width: 1.4px; }
+  .geo-cell.dimmed { opacity: .08 !important; pointer-events: none; }
+
+  /* ---- Маркери інфраструктури ---- */
+  .infra-marker { transition: opacity .18s ease, transform .15s ease; cursor: pointer; }
+  .infra-marker:hover { transform: scale(1.25); }
+  .marker-active { filter: drop-shadow(0 0 4px rgba(218,41,28,.65)); }
+
+  /* ---- Сегментований перемикач (All/Yes/No) ---- */
+  .seg { display:inline-flex; background:#EEF0F2; border-radius:8px; padding:2px; }
+  .seg button { font-size:11px; padding:4px 9px; border-radius:6px; color:#5A5F66; transition:.15s; white-space:nowrap; }
+  .seg button.on { background:#fff; color:#1E1E1E; box-shadow:0 1px 2px rgba(0,0,0,.12); font-weight:600; }
+  .seg button.on.yes { color:#15803d; }
+  .seg button.on.no  { color:#DA291C; }
+
+  /* ---- Карточки KPI ---- */
+  .kpi { background:#fff; border:1px solid #E6E8EB; border-radius:12px; }
+
+  /* ---- Heatmap клітини ---- */
+  .hm-cell { stroke:#fff; stroke-width:1; transition: fill .2s ease; }
+
+  /* ---- Лассо ---- */
+  #lasso-svg { position:absolute; inset:0; pointer-events:none; z-index:30; }
+  .lasso-path { fill: rgba(218,41,28,.10); stroke:#DA291C; stroke-width:1.5; stroke-dasharray:5 4; }
+
+  .tab-on { background:#DA291C !important; color:#fff !important; }
+  .pill { border:1px solid #E6E8EB; border-radius:999px; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  .scrollbar-thin::-webkit-scrollbar{width:6px;}
+</style>
+</head>
+
+<body class="overflow-hidden">
+
+<!-- ============================================================
+     1. ВЕРХНЯ ПАНЕЛЬ КЕРУВАННЯ (Глобальні фільтри)
+============================================================ -->
+<header class="bg-np-panel border-b border-np-line shadow-sm relative z-40">
+  <div class="px-4 py-2.5 flex items-center gap-4">
+    <!-- Лого та назва системи -->
+    <div class="flex items-center gap-3 shrink-0">
+      <div class="w-9 h-9 rounded-lg bg-np-red flex items-center justify-center text-white text-lg shadow">
+        <i class="fa-solid fa-box-archive"></i>
+      </div>
+      <div class="leading-tight">
+        <div class="font-bold text-np-ink text-[15px]">Аналітика Поштоматів</div>
+        <div class="text-[11px] text-np-slate">Нова Пошта · Geo-Analytics Suite</div>
+      </div>
+    </div>
+
+    <div class="h-9 w-px bg-np-line mx-1"></div>
+
+    <!-- Гео-ієрархія (Multi-select спрощені дропдауни) -->
+    <div class="flex items-end gap-2 flex-wrap">
+      <div>
+        <label class="block text-[10px] uppercase tracking-wide text-np-slate mb-0.5">Область</label>
+        <select id="f-oblast" class="filter-geo text-[12px] border border-np-line rounded-md px-2 py-1.5 bg-white min-w-[130px]"></select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase tracking-wide text-np-slate mb-0.5">Район</label>
+        <select id="f-rayon" class="filter-geo text-[12px] border border-np-line rounded-md px-2 py-1.5 bg-white min-w-[120px]"></select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase tracking-wide text-np-slate mb-0.5">Місто / НП</label>
+        <select id="f-city" class="filter-geo text-[12px] border border-np-line rounded-md px-2 py-1.5 bg-white min-w-[130px]"></select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase tracking-wide text-np-slate mb-0.5">Тип НП</label>
+        <select id="f-nptype" class="filter-geo text-[12px] border border-np-line rounded-md px-2 py-1.5 bg-white min-w-[110px]"></select>
+      </div>
+    </div>
+
+    <div class="ml-auto flex items-center gap-3 text-[11px] text-np-slate">
+      <span id="status-count" class="pill px-3 py-1.5 bg-white"></span>
+      <button id="btn-reset" class="pill px-3 py-1.5 bg-white hover:bg-np-bg transition">
+        <i class="fa-solid fa-rotate-left mr-1"></i>Скинути
+      </button>
+    </div>
+  </div>
+
+  <!-- Другий рядок: розмір сітки, слайдер клієнтів, 4 інфра-фільтри -->
+  <div class="px-4 pb-3 flex items-center gap-5 flex-wrap border-t border-np-line/70 pt-2.5 bg-np-bg/40">
+    <!-- Розмір гео-сітки -->
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] text-np-slate"><i class="fa-solid fa-border-all mr-1"></i>Розмір сітки</span>
+      <select id="f-grid" class="text-[12px] border border-np-line rounded-md px-2 py-1 bg-white">
+        <option value="100">100 м</option>
+        <option value="300" selected>300 м</option>
+        <option value="500">500 м</option>
+        <option value="1000">1 км</option>
+      </select>
+    </div>
+
+    <!-- Слайдер кількості клієнтів у квадраті -->
+    <div class="flex items-center gap-2">
+      <span class="text-[11px] text-np-slate"><i class="fa-solid fa-users mr-1"></i>Клієнтів у квадраті</span>
+      <input id="f-cli-min" type="number" min="0" max="500" value="0"
+             class="w-16 text-[12px] border border-np-line rounded-md px-2 py-1 bg-white" />
+      <span class="text-np-slate text-xs">—</span>
+      <input id="f-cli-max" type="number" min="0" max="500" value="500"
+             class="w-16 text-[12px] border border-np-line rounded-md px-2 py-1 bg-white" />
+    </div>
+
+    <div class="h-7 w-px bg-np-line"></div>
+
+    <!-- 4 незалежні інфра-перемикачі [Всі / Є / Немає] -->
+    <div class="flex items-center gap-4 flex-wrap" id="infra-filters">
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-np-slate"><i class="fa-solid fa-box-archive text-np-red mr-1"></i>Поштомат</span>
+        <span class="seg" data-key="postomat"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-np-slate"><i class="fa-solid fa-truck-ramp-box mr-1"></i>Вантажне</span>
+        <span class="seg" data-key="cargo"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-np-slate"><i class="fa-solid fa-store mr-1"></i>Відділення</span>
+        <span class="seg" data-key="branch"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-np-slate"><i class="fa-solid fa-shop mr-1"></i>ПУДО</span>
+        <span class="seg" data-key="pudo"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================
+     ОСНОВНА ЗОНА: КАРТА (60%) + КАРТКА ПОШТОМАТА (40%)
+============================================================ -->
+<main class="flex" style="height: calc(100vh - 104px);">
+
+  <!-- ---------- ЛІВА ЧАСТИНА: КАРТА ---------- -->
+  <section class="relative" style="width:60%;" id="map-wrap">
+    <!-- Тулбар карти -->
+    <div class="absolute top-3 left-3 z-30 flex items-center gap-2">
+      <div class="bg-white/95 backdrop-blur border border-np-line rounded-lg shadow-sm flex">
+        <button id="tool-pan"  class="px-3 py-2 text-[12px] text-np-graphite tab-on rounded-l-lg" title="Переміщення">
+          <i class="fa-solid fa-arrows-up-down-left-right"></i>
+        </button>
+        <button id="tool-lasso" class="px-3 py-2 text-[12px] text-np-graphite border-l border-np-line" title="Виділити зону (ласо)">
+          <i class="fa-solid fa-draw-polygon"></i>
+        </button>
+        <button id="tool-clear" class="px-3 py-2 text-[12px] text-np-graphite border-l border-np-line rounded-r-lg" title="Очистити виділення">
+          <i class="fa-solid fa-eraser"></i>
+        </button>
+      </div>
+      <div class="bg-white/95 backdrop-blur border border-np-line rounded-lg shadow-sm px-3 py-2 text-[11px] text-np-slate">
+        <i class="fa-solid fa-circle-info mr-1 text-np-red"></i>Клік по поштомату — деталізація
+      </div>
+    </div>
+
+    <!-- Легенда щільності -->
+    <div class="absolute bottom-3 left-3 z-30 bg-white/95 backdrop-blur border border-np-line rounded-lg shadow-sm px-3 py-2">
+      <div class="text-[10px] uppercase tracking-wide text-np-slate mb-1">Щільність клієнтів</div>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] text-np-slate">мало</span>
+        <div class="h-2.5 w-32 rounded-full" style="background:linear-gradient(90deg,#16a34a,#eab308,#f97316,#DA291C)"></div>
+        <span class="text-[10px] text-np-slate">багато</span>
+      </div>
+      <div class="flex items-center gap-3 mt-2 text-[10px] text-np-slate">
+        <span><i class="fa-solid fa-box-archive text-np-red"></i> Поштомат</span>
+        <span><i class="fa-solid fa-truck-ramp-box text-amber-600"></i> Вантажне</span>
+        <span><i class="fa-solid fa-store text-sky-600"></i> Відділення</span>
+        <span><i class="fa-solid fa-shop text-violet-600"></i> ПУДО</span>
+      </div>
+    </div>
+
+    <!-- Контейнер карти (SVG для повної автономності) -->
+    <div id="map-canvas" class="w-full h-full bg-[#EAF0EC] relative overflow-hidden cursor-grab">
+      <svg id="map-svg" class="w-full h-full block"></svg>
+      <svg id="lasso-svg"></svg>
+    </div>
+  </section>
+
+  <!-- ---------- ПРАВА ЧАСТИНА: КАРТКА ПОШТОМАТА ---------- -->
+  <aside class="bg-np-panel border-l border-np-line overflow-y-auto scrollbar-thin" style="width:40%;" id="detail-panel">
+    <!-- Заглушка за замовчуванням -->
+    <div id="detail-empty" class="h-full flex flex-col items-center justify-center text-center px-10 text-np-slate">
+      <div class="w-20 h-20 rounded-2xl bg-np-bg flex items-center justify-center text-3xl text-np-red mb-4">
+        <i class="fa-solid fa-box-archive"></i>
+      </div>
+      <div class="text-lg font-semibold text-np-graphite">Оберіть поштомат на карті</div>
+      <div class="text-sm mt-1 max-w-xs">для глибокої аналітики профілю локації, клієнтів та операційної ефективності</div>
+    </div>
+
+    <!-- Динамічний контент картки -->
+    <div id="detail-content" class="hidden"></div>
+  </aside>
+</main>
+
+<script>
+/* ================================================================
+   POSTOMAT GEO-ANALYTICS — клієнтський прототип
+   ----------------------------------------------------------------
+   Дані імітують структуру джерел Tableau:
+     • Report_HeatMap_refact_WhData_dim_bielik_dev_v   (вимірювання локацій)
+     • Report_HeatMap_refact_WhData_v                  (агреговані факти ЕН)
+     • Report_HeatMap_refact_WhData_Rentability_and_Rent_v (фінанси/рентабельність)
+     • Report_HeatMap_UserPoints_not_in_Buffer_v       (точки користувачів / щільність)
+   Увесь код у одному файлі, без бекенду — повний Data Mocking.
+================================================================ */
+
+/* ---------- Детермінований ГПВЧ (щоб дані були стабільні між фільтрами) ---------- */
+function seeded(seed){
+  let s = seed >>> 0;
+  return function(){ s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+const rndInt = (r,a,b)=> Math.floor(r()*(b-a+1))+a;
+const pick   = (r,arr)=> arr[Math.floor(r()*arr.length)];
+const fmt    = n => n.toLocaleString('uk-UA');
+const money  = n => n.toLocaleString('uk-UA',{maximumFractionDigits:0}) + ' ₴';
+
+/* ================================================================
+   ДОВІДНИКИ ГЕО-ІЄРАРХІЇ (dim_bielik_dev_v)
+================================================================ */
+const GEO = {
+  'Київська':   { rayons:{'Києво-Святошинський':['Київ','Вишневе','Боярка'],'Бориспільський':['Бориспіль','Щасливе']} },
+  'Львівська':  { rayons:{'Львівський':['Львів','Винники','Брюховичі'],'Стрийський':['Стрий','Моршин']} },
+  'Одеська':    { rayons:{'Одеський':['Одеса','Чорноморськ'],'Ізмаїльський':['Ізмаїл']} },
+  'Харківська': { rayons:{'Харківський':['Харків','Люботин'],'Чугуївський':['Чугуїв']} },
+  'Дніпро.':    { rayons:{'Дніпровський':['Дніпро','Підгородне'],'Кам.':['Кам\'янське']} },
+};
+const NP_TYPES = ['Місто','Селище міського типу','Село'];
+
+/* ================================================================
+   ГЕНЕРАЦІЯ КЛІТИН ГЕО-СІТКИ + ОБ'ЄКТІВ ІНФРАСТРУКТУРИ
+   Кожна клітина = квадрат гео-сітки з показником щільності клієнтів
+   та набором інфраструктурних об'єктів.
+================================================================ */
+// Розмір гео-сітки (м) → роздільність полотна (кол-ть клітин).
+// Менший квадрат у метрах = більше, щільніших клітин на карті.
+const GRID_DIMS = {
+  1000: {cols:12, rows:8},   // 1 км   — крупні клітини
+  500:  {cols:16, rows:10},  // 500 м
+  300:  {cols:22, rows:14},  // 300 м  — за замовчуванням
+  100:  {cols:34, rows:22},  // 100 м  — дрібна щільна сітка
+};
+let GRID_COLS = 22, GRID_ROWS = 14;        // активна роздільність
+let CELLS = [];                            // активна сітка
+let POSTOMATS = [];                        // діючі поштомати (для деталізації)
+
+const FIRST_NAMES = ['Олександр','Марія','Іван','Олена','Андрій','Наталія','Сергій','Тетяна','Дмитро','Юлія','Віктор','Ірина'];
+
+function buildBaseData(){
+  // Роздільність сітки залежить від обраного розміру квадрата.
+  const dim = GRID_DIMS[filters.grid] || GRID_DIMS[300];
+  GRID_COLS = dim.cols; GRID_ROWS = dim.rows;
+  // Сід прив'язаний до роздільності, щоб кожен масштаб мав стабільну розкладку.
+  const r = seeded(20240618 + filters.grid);
+  const oblasts = Object.keys(GEO);
+  CELLS = [];
+  POSTOMATS = [];
+  let pmId = 1000;
+
+  for (let gy=0; gy<GRID_ROWS; gy++){
+    for (let gx=0; gx<GRID_COLS; gx++){
+      // Прив'язка клітини до випадкової гео-локації
+      const oblast = pick(r, oblasts);
+      const rayon  = pick(r, Object.keys(GEO[oblast].rayons));
+      const city   = pick(r, GEO[oblast].rayons[rayon]);
+      const npType = pick(r, NP_TYPES);
+
+      // Щільність клієнтів — центр карти щільніший (імітація міст)
+      const cx = GRID_COLS/2, cy = GRID_ROWS/2;
+      const dist = Math.hypot(gx-cx, gy-cy) / Math.hypot(cx,cy);
+      const baseDensity = Math.max(0, (1-dist) * 380 + (r()*80 - 30));
+      const clients = Math.max(0, Math.round(baseDensity));
+
+      // Наявність інфраструктури (ймовірності залежать від щільності)
+      const hasPostomat = r() < (0.35 + (1-dist)*0.45);
+      const hasCargo    = r() < 0.22;
+      const hasBranch   = r() < (0.30 + (1-dist)*0.25);
+      const hasPudo     = r() < 0.30;
+
+      const cell = {
+        id:`${gx}-${gy}`, gx, gy, oblast, rayon, city, npType,
+        clients,
+        postomat: hasPostomat, cargo: hasCargo, branch: hasBranch, pudo: hasPudo,
+      };
+
+      // Якщо є поштомат — створюємо повний детальний об'єкт
+      if (hasPostomat){
+        cell.postomatId = pmId;
+        POSTOMATS[pmId] = makePostomatDetail(pmId, cell, r);
+        pmId++;
+      }
+      CELLS.push(cell);
+    }
+  }
+}
+
+/* ---------- Детальний профіль одного поштомата (всі 7 блоків) ---------- */
+function makePostomatDetail(id, cell, r0){
+  const r = seeded(id * 7919);   // власний сід — стабільні дані для поштомата
+  const months = ['Лип','Сер','Вер','Жов','Лис','Гру','Січ','Лют','Бер','Кві','Тра','Чер'];
+
+  // Блок 1: помісячна динаміка
+  const monthly = months.map(m=>{
+    const clients = rndInt(r, 120, 900);
+    const en = Math.round(clients * (1.1 + r()*0.6));
+    const grossRev = Math.round(en * (38 + r()*22));       // валовий дохід
+    const localRev = Math.round(grossRev * (0.45 + r()*0.3)); // локальний дохід
+    return { m, clients, en, grossRev, localRev };
+  });
+
+  // Блок 2: концентрація + ТОП-20
+  const top = [];
+  for (let i=0;i<20;i++){
+    const en = rndInt(r, 12, 480) - i*4;
+    const phone = `+38067${rndInt(r,100,999)}***${rndInt(r,1000,9999)}`;
+    top.push({
+      name: `${pick(r,FIRST_NAMES)} ${String.fromCharCode(1040+rndInt(r,0,31))}.`,
+      phone, en: Math.max(5,en),
+      sum: Math.max(5,en)* (30+rndInt(r,5,40)),
+    });
+  }
+  top.sort((a,b)=>b.en-a.en);
+  const concentration = [
+    {label:'100%',   v: rndInt(r,4,12)},
+    {label:'90-99%', v: rndInt(r,8,18)},
+    {label:'75-89%', v: rndInt(r,12,24)},
+    {label:'50-74%', v: rndInt(r,18,30)},
+    {label:'<50%',   v: rndInt(r,20,40)},
+  ];
+
+  // Блок 3: профіль відправлень
+  const dims = { 'Документи':rndInt(r,15,35),'Маленька':rndInt(r,25,40),'Середня':rndInt(r,15,30),'Велика':rndInt(r,5,18) };
+  const prodSend = ['Одяг','Електроніка','Косметика','Запчастини','Аксесуари'].map(p=>({p, v:rndInt(r,5,40)}));
+  const prodRecv = ['Косметика','Одяг','Книги','Іграшки','Гаджети'].map(p=>({p, v:rndInt(r,5,40)}));
+  const flows = {
+    'Поштомат → Відділення': rndInt(r,15,35),
+    'Поштомат → Поштомат':   rndInt(r,25,45),
+    'Поштомат → Адреса/ПУДО':rndInt(r,10,30),
+  };
+
+  // Блок 4: операційна ефективність
+  const pickupSpeed = [
+    {label:'0-2 год',  v:rndInt(r,8,20)},
+    {label:'2-6 год',  v:rndInt(r,15,28)},
+    {label:'6-12 год', v:rndInt(r,18,30)},
+    {label:'12-24 год',v:rndInt(r,12,22)},
+    {label:'1-2 дні',  v:rndInt(r,6,14)},
+    {label:'>2 днів',  v:rndInt(r,2,8)},
+  ];
+  const redirects = { en: rndInt(r,30,260), pct: (r()*9+1).toFixed(1) };
+
+  // Блок 5: сегментація
+  const nightShare = rndInt(r,35,72);   // нічний клієнт ("живе тут")
+  const rfm = [
+    {seg:'Нові',        loc:rndInt(r,8,20),  corp:14},
+    {seg:'Активні',     loc:rndInt(r,30,55), corp:42},
+    {seg:'Під загрозою',loc:rndInt(r,8,22),  corp:18},
+    {seg:'Сплячі',      loc:rndInt(r,10,28), corp:26},
+  ];
+
+  // Блок 6: спец-вантажі та фінанси
+  const marketplaces = { Prom:rndInt(r,10,40), Rozetka:rndInt(r,15,45), OLX:rndInt(r,8,30) };
+  const importPct = rndInt(r,3,18);
+  const cod = {
+    sendCount:rndInt(r,40,200), recvCount:rndInt(r,50,260),
+    totalSum: rndInt(r,80,400)*1000,
+    avgSend: rndInt(r,450,1800), avgRecv: rndInt(r,500,2100),
+  };
+  const valuation = [
+    {label:'до 500',    v:rndInt(r,20,40)},
+    {label:'500-1500',  v:rndInt(r,25,40)},
+    {label:'1500-5000', v:rndInt(r,15,28)},
+    {label:'>5000',     v:rndInt(r,5,15)},
+  ];
+
+  // Блок 7: heatmap 7×24 (всього / відправка / отримання)
+  function makeHeat(scale){
+    const grid=[];
+    for(let d=0; d<7; d++){
+      const row=[];
+      for(let h=0; h<24; h++){
+        // денні години + будні активніші
+        const dayFactor = (h>=8 && h<=21) ? 1 : 0.25;
+        const weekend = (d>=5) ? 0.7 : 1;
+        row.push(Math.round((r()*0.5+0.5) * dayFactor * weekend * scale * 100));
+      }
+      grid.push(row);
+    }
+    return grid;
+  }
+  const heat = { all: makeHeat(1), send: makeHeat(0.55), recv: makeHeat(0.6) };
+
+  const totalEN = monthly.reduce((s,m)=>s+m.en,0);
+  const totalClients = Math.round(monthly.reduce((s,m)=>s+m.clients,0)/12);
+
+  return {
+    id, cell,
+    name: `Поштомат №${id} (${cell.city})`,
+    address: `${cell.city}, вул. ${pick(r,['Соборна','Шевченка','Хрещатик','Перемоги','Незалежності'])}, ${rndInt(r,1,120)}`,
+    rating: (r()*1.4+3.5).toFixed(1),
+    cells: rndInt(r,30,108),
+    totalEN, totalClients,
+    monthly, top, concentration, dims, prodSend, prodRecv, flows,
+    pickupSpeed, redirects, nightShare, rfm, marketplaces, importPct, cod, valuation, heat,
+  };
+}
+
+/* ================================================================
+   КОЛІРНА ШКАЛА ЩІЛЬНОСТІ (зелений → жовтий → помаранчевий → червоний)
+================================================================ */
+function densityColor(clients, max){
+  const t = Math.min(1, clients / (max||1));
+  // інтерполяція по 4 контрольних точках
+  const stops = [ [22,163,74],[234,179,8],[249,115,22],[218,41,28] ];
+  const seg = t*(stops.length-1);
+  const i = Math.min(stops.length-2, Math.floor(seg));
+  const f = seg - i;
+  const c = stops[i].map((v,k)=> Math.round(v + (stops[i+1][k]-v)*f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+/* ================================================================
+   СТАН ФІЛЬТРІВ
+================================================================ */
+const filters = {
+  oblast:'', rayon:'', city:'', nptype:'',
+  grid:300,
+  cliMin:0, cliMax:500,
+  infra:{ postomat:'all', cargo:'all', branch:'all', pudo:'all' },
+  lasso:null,     // {points:[{x,y}...]}  у координатах SVG
+};
+
+/* ================================================================
+   ПОБУДОВА КАРТИ (SVG)
+================================================================ */
+const SVG_W = 1000, SVG_H = 640;
+const mapSvg = document.getElementById('map-svg');
+const lassoSvg = document.getElementById('lasso-svg');
+
+function passesGeo(cell){
+  if (filters.oblast && cell.oblast !== filters.oblast) return false;
+  if (filters.rayon  && cell.rayon  !== filters.rayon)  return false;
+  if (filters.city   && cell.city   !== filters.city)   return false;
+  if (filters.nptype && cell.npType !== filters.nptype) return false;
+  return true;
+}
+function passesInfra(cell){
+  for (const key of ['postomat','cargo','branch','pudo']){
+    const mode = filters.infra[key];
+    if (mode==='yes' && !cell[key]) return false;
+    if (mode==='no'  &&  cell[key]) return false;
+  }
+  return true;
+}
+function passesClients(cell){
+  return cell.clients >= filters.cliMin && cell.clients <= filters.cliMax;
+}
+function pointInPoly(px,py,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+    if(((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+let selectedPostomatId = null;
+
+function renderMap(){
+  const maxClients = Math.max(...CELLS.map(c=>c.clients), 1);
+  const cwR = SVG_W/GRID_COLS, chR = SVG_H/GRID_ROWS;   // розмір клітини у px
+  let svg = '';
+  let shown = 0, postomatsShown = 0;
+
+  CELLS.forEach(cell=>{
+    const x = cell.gx * cwR;
+    const y = cell.gy * chR;
+
+    const geoOk = passesGeo(cell);
+    const cliOk = passesClients(cell);
+    const infraOk = passesInfra(cell);
+
+    // Лассо-фільтр (центр клітини всередині полігона)
+    let lassoOk = true;
+    if (filters.lasso && filters.lasso.points.length>2){
+      lassoOk = pointInPoly(x+cwR/2, y+chR/2, filters.lasso.points);
+    }
+
+    const visible = geoOk && cliOk && infraOk && lassoOk;
+    if (visible) shown++;
+
+    const fill = densityColor(cell.clients, maxClients);
+    const dim = visible ? '' : 'dimmed';
+
+    svg += `<rect class="geo-cell ${dim}" data-cell="${cell.id}"
+              x="${x+1}" y="${y+1}" width="${cwR-2}" height="${chR-2}" rx="3"
+              fill="${fill}" fill-opacity="0.55" stroke="#ffffff" stroke-width="0.8"></rect>`;
+
+    if (!visible) return;
+
+    // Маркери інфраструктури — прості SVG-фігури (надійний рендер без webfont).
+    // Поштомат = квадрат (бренд-червоний), решта об'єктів = кольорові кружечки.
+    const cxp = x + cwR/2, cyp = y + chR/2;
+    const markers = [];
+    if (cell.postomat && filters.infra.postomat!=='no'){
+      markers.push({shape:'square', color:'#DA291C', type:'postomat', pid:cell.postomatId});
+    }
+    if (cell.cargo && filters.infra.cargo!=='no')   markers.push({shape:'dot', color:'#d97706', type:'cargo'});
+    if (cell.branch && filters.infra.branch!=='no') markers.push({shape:'dot', color:'#0284c7', type:'branch'});
+    if (cell.pudo && filters.infra.pudo!=='no')     markers.push({shape:'dot', color:'#7c3aed', type:'pudo'});
+
+    const sz = Math.max(4, Math.min(8, cwR/4));
+    markers.forEach((mk,i)=>{
+      const ox = cxp + (i - (markers.length-1)/2) * (sz + 3);
+      const isSel = (mk.type==='postomat' && mk.pid===selectedPostomatId);
+      if (mk.type==='postomat') postomatsShown++;
+      const glyph = mk.shape==='square'
+        ? `<rect x="${ox-sz/2}" y="${cyp-sz/2}" width="${sz}" height="${sz}" rx="1.5" fill="${mk.color}" stroke="#fff" stroke-width="${isSel?2:1}"></rect>`
+        : `<circle cx="${ox}" cy="${cyp}" r="${sz/2}" fill="${mk.color}" stroke="#fff" stroke-width="1"></circle>`;
+      svg += `<g class="infra-marker ${isSel?'marker-active':''}" ${mk.pid?`data-postomat="${mk.pid}" style="cursor:pointer"`:''}>${glyph}</g>`;
+    });
+  });
+
+  mapSvg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+  mapSvg.innerHTML = svg;
+
+  // Прив'язка кліків
+  mapSvg.querySelectorAll('[data-postomat]').forEach(el=>{
+    el.addEventListener('click', e=>{
+      e.stopPropagation();
+      openPostomat(parseInt(el.getAttribute('data-postomat')));
+    });
+  });
+
+  document.getElementById('status-count').innerHTML =
+    `<i class="fa-solid fa-layer-group mr-1 text-np-red"></i>${shown} квадратів · <b>${postomatsShown}</b> поштоматів`;
+}
+
+/* ================================================================
+   ВЕРХНІ ФІЛЬТРИ — ІНІЦІАЛІЗАЦІЯ
+================================================================ */
+function initGeoSelects(){
+  const oSel = document.getElementById('f-oblast');
+  oSel.innerHTML = '<option value="">Усі області</option>' +
+    Object.keys(GEO).map(o=>`<option>${o}</option>`).join('');
+
+  function fillRayon(){
+    const rSel = document.getElementById('f-rayon');
+    const o = oSel.value;
+    if(!o){ rSel.innerHTML='<option value="">Усі райони</option>'; }
+    else { rSel.innerHTML='<option value="">Усі райони</option>'+
+      Object.keys(GEO[o].rayons).map(r=>`<option>${r}</option>`).join(''); }
+    fillCity();
+  }
+  function fillCity(){
+    const cSel = document.getElementById('f-city');
+    const o = oSel.value, rv = document.getElementById('f-rayon').value;
+    let cities=[];
+    if(o && rv) cities = GEO[o].rayons[rv];
+    else if(o) cities = Object.values(GEO[o].rayons).flat();
+    cSel.innerHTML='<option value="">Усі НП</option>'+cities.map(c=>`<option>${c}</option>`).join('');
+  }
+
+  oSel.addEventListener('change', fillRayon);
+  document.getElementById('f-rayon').addEventListener('change', fillCity);
+
+  document.getElementById('f-nptype').innerHTML =
+    '<option value="">Усі типи</option>' + NP_TYPES.map(t=>`<option>${t}</option>`).join('');
+
+  fillRayon();
+}
+
+function initInfraSegs(){
+  const labels = {all:'Всі', yes:'Є', no:'Немає'};
+  document.querySelectorAll('.seg').forEach(seg=>{
+    const key = seg.getAttribute('data-key');
+    seg.innerHTML = ['all','yes','no'].map(v=>
+      `<button data-v="${v}" class="${v==='all'?'on':''} ${v==='yes'?'yes':''} ${v==='no'?'no':''}">${labels[v]}</button>`
+    ).join('');
+    seg.querySelectorAll('button').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on');
+        filters.infra[key] = b.getAttribute('data-v');
+        renderMap();
+      });
+    });
+  });
+}
+
+function bindFilters(){
+  document.querySelectorAll('.filter-geo').forEach(s=>{
+    s.addEventListener('change', ()=>{
+      filters.oblast = document.getElementById('f-oblast').value;
+      filters.rayon  = document.getElementById('f-rayon').value;
+      filters.city   = document.getElementById('f-city').value;
+      filters.nptype = document.getElementById('f-nptype').value;
+      renderMap();
+    });
+  });
+
+  document.getElementById('f-grid').addEventListener('change', e=>{
+    filters.grid = parseInt(e.target.value);
+    // Зміна розміру квадрата = перебудова сітки в іншій роздільності.
+    buildBaseData();
+    closeDetail();   // id поштоматів змінюються — закриваємо стару картку
+    renderMap();
+  });
+
+  const cliMin = document.getElementById('f-cli-min');
+  const cliMax = document.getElementById('f-cli-max');
+  [cliMin,cliMax].forEach(inp=> inp.addEventListener('input', ()=>{
+    filters.cliMin = parseInt(cliMin.value)||0;
+    filters.cliMax = parseInt(cliMax.value)||500;
+    renderMap();
+  }));
+
+  document.getElementById('btn-reset').addEventListener('click', ()=>{
+    filters.oblast=filters.rayon=filters.city=filters.nptype='';
+    filters.grid=300; filters.cliMin=0; filters.cliMax=500;
+    filters.infra={postomat:'all',cargo:'all',branch:'all',pudo:'all'};
+    filters.lasso=null; lassoSvg.innerHTML='';
+    document.querySelectorAll('.filter-geo').forEach(s=>s.selectedIndex=0);
+    document.getElementById('f-grid').value='300';
+    cliMin.value=0; cliMax.value=500;
+    initGeoSelects(); initInfraSegs();
+    buildBaseData(); closeDetail();
+    renderMap();
+  });
+}
+
+/* ================================================================
+   ЛАССО / ВИДІЛЕННЯ ЗОНИ
+================================================================ */
+let tool='pan', drawing=false, lassoPts=[];
+function setTool(t){
+  tool=t;
+  document.getElementById('tool-pan').classList.toggle('tab-on', t==='pan');
+  document.getElementById('tool-lasso').classList.toggle('tab-on', t==='lasso');
+  document.getElementById('map-canvas').style.cursor = (t==='lasso')?'crosshair':'grab';
+}
+function svgPoint(e){
+  const rect = mapSvg.getBoundingClientRect();
+  return { x:(e.clientX-rect.left)/rect.width*SVG_W, y:(e.clientY-rect.top)/rect.height*SVG_H };
+}
+function initLasso(){
+  document.getElementById('tool-pan').addEventListener('click',()=>setTool('pan'));
+  document.getElementById('tool-lasso').addEventListener('click',()=>setTool('lasso'));
+  document.getElementById('tool-clear').addEventListener('click',()=>{
+    filters.lasso=null; lassoSvg.innerHTML=''; renderMap();
+  });
+  lassoSvg.setAttribute('viewBox',`0 0 ${SVG_W} ${SVG_H}`);
+
+  const canvas = document.getElementById('map-canvas');
+  canvas.addEventListener('mousedown', e=>{
+    if(tool!=='lasso') return;
+    drawing=true; lassoPts=[svgPoint(e)];
+  });
+  canvas.addEventListener('mousemove', e=>{
+    if(!drawing) return;
+    lassoPts.push(svgPoint(e));
+    const d = 'M'+lassoPts.map(p=>`${p.x},${p.y}`).join(' L');
+    lassoSvg.innerHTML = `<path class="lasso-path" d="${d} Z"></path>`;
+  });
+  window.addEventListener('mouseup', ()=>{
+    if(!drawing) return;
+    drawing=false;
+    if(lassoPts.length>2){ filters.lasso={points:lassoPts.slice()}; renderMap(); }
+  });
+}
+
+/* ================================================================
+   ВІДКРИТТЯ КАРТКИ ПОШТОМАТА (Detail View) — 7 блоків
+================================================================ */
+let charts = [];
+function destroyCharts(){ charts.forEach(c=>c.destroy()); charts=[]; }
+
+// Закриття картки деталізації → повернення до заглушки
+function closeDetail(){
+  selectedPostomatId = null;
+  destroyCharts();
+  const c = document.getElementById('detail-content');
+  c.classList.add('hidden'); c.innerHTML = '';
+  document.getElementById('detail-empty').classList.remove('hidden');
+}
+
+function openPostomat(id){
+  const p = POSTOMATS[id];
+  if(!p) return;
+  selectedPostomatId = id;
+  renderMap();
+
+  document.getElementById('detail-empty').classList.add('hidden');
+  const root = document.getElementById('detail-content');
+  root.classList.remove('hidden');
+  root.classList.add('detail-enter');
+
+  root.innerHTML = detailHTML(p);
+  destroyCharts();
+  wireDetail(p);
+}
+
+function detailHTML(p){
+  return `
+  <!-- Шапка картки -->
+  <div class="sticky top-0 z-10 bg-white border-b border-np-line px-5 py-3.5">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="w-7 h-7 rounded-md bg-np-red text-white flex items-center justify-center text-sm"><i class="fa-solid fa-box-archive"></i></span>
+          <h2 class="text-[16px] font-bold text-np-ink">${p.name}</h2>
+        </div>
+        <div class="text-[12px] text-np-slate mt-1"><i class="fa-solid fa-location-dot mr-1"></i>${p.address}</div>
+      </div>
+      <div class="text-right shrink-0">
+        <div class="text-[11px] text-np-slate">Рейтинг</div>
+        <div class="text-np-red font-bold text-lg leading-none">${p.rating}<i class="fa-solid fa-star text-[11px] ml-1"></i></div>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-2 mt-3">
+      <div class="kpi px-2.5 py-2"><div class="text-[10px] text-np-slate">ЕН / рік</div><div class="font-bold text-np-ink">${fmt(p.totalEN)}</div></div>
+      <div class="kpi px-2.5 py-2"><div class="text-[10px] text-np-slate">Клієнтів/міс</div><div class="font-bold text-np-ink">${fmt(p.totalClients)}</div></div>
+      <div class="kpi px-2.5 py-2"><div class="text-[10px] text-np-slate">Комірок</div><div class="font-bold text-np-ink">${p.cells}</div></div>
+    </div>
+  </div>
+
+  <div class="px-5 py-4 space-y-5">
+
+    ${sectionTitle('1','Загальна динаміка та обсяги','fa-chart-column')}
+    <div class="kpi p-3">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[12px] text-np-slate">Дохід · модель розрахунку</span>
+        <div class="seg" id="rev-toggle">
+          <button data-rev="gross" class="on">Валовий потік</button>
+          <button data-rev="local">Локальний дохід</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-4 mb-2">
+        <div><div class="text-[10px] text-np-slate">Сума за період</div><div id="rev-sum" class="text-lg font-bold text-np-red"></div></div>
+        <div><div class="text-[10px] text-np-slate">Сер. ЕН/міс</div><div class="text-lg font-bold text-np-ink">${fmt(Math.round(p.totalEN/12))}</div></div>
+      </div>
+      <canvas id="chart-monthly" height="150"></canvas>
+    </div>
+
+    ${sectionTitle('2','Концентрація та ТОП-клієнти','fa-users-gear')}
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">Пріоритетність у портфелі клієнта (доля локації в обсязі клієнта)</div>
+      <div class="space-y-1.5">
+        ${p.concentration.map(c=>{
+          const max=Math.max(...p.concentration.map(x=>x.v));
+          return `<div class="flex items-center gap-2 text-[11px]">
+            <span class="w-14 text-np-slate">${c.label}</span>
+            <div class="flex-1 bg-np-bg rounded h-4 overflow-hidden">
+              <div class="h-full bg-np-red/80" style="width:${c.v/max*100}%"></div>
+            </div><span class="w-8 text-right font-semibold">${c.v}</span></div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">ТОП-20 клієнтів (за к-стю ЕН)</div>
+      <div class="max-h-56 overflow-y-auto scrollbar-thin">
+        <table class="w-full text-[11px]">
+          <thead class="text-np-slate sticky top-0 bg-white"><tr class="text-left">
+            <th class="py-1">#</th><th>Клієнт</th><th>Телефон</th><th class="text-right">ЕН</th><th class="text-right">Сума</th>
+          </tr></thead>
+          <tbody>
+          ${p.top.map((t,i)=>`<tr class="border-t border-np-line/70">
+            <td class="py-1 text-np-slate">${i+1}</td>
+            <td class="font-medium">${t.name}</td>
+            <td class="font-mono text-np-slate">${t.phone}</td>
+            <td class="text-right font-semibold">${t.en}</td>
+            <td class="text-right">${money(t.sum)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    ${sectionTitle('3','Профіль відправлень','fa-boxes-stacked')}
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">Габаритна сітка</div>
+      <div class="flex h-7 rounded overflow-hidden text-[10px] text-white font-semibold">
+        ${(()=>{const tot=Object.values(p.dims).reduce((a,b)=>a+b,0);
+          const cols={'Документи':'#5A5F66','Маленька':'#0284c7','Середня':'#d97706','Велика':'#DA291C'};
+          return Object.entries(p.dims).map(([k,v])=>`<div style="width:${v/tot*100}%;background:${cols[k]}" class="flex items-center justify-center" title="${k}">${Math.round(v/tot*100)}%</div>`).join('');})()}
+      </div>
+      <div class="flex flex-wrap gap-3 mt-2 text-[10px] text-np-slate">
+        <span><i class="fa-solid fa-square" style="color:#5A5F66"></i> Документи</span>
+        <span><i class="fa-solid fa-square" style="color:#0284c7"></i> Маленька</span>
+        <span><i class="fa-solid fa-square" style="color:#d97706"></i> Середня</span>
+        <span><i class="fa-solid fa-square" style="color:#DA291C"></i> Велика</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mt-3">
+        <div>
+          <div class="text-[11px] font-semibold text-np-graphite mb-1"><i class="fa-solid fa-arrow-up-from-bracket text-np-red mr-1"></i>Топ — Відправки</div>
+          ${miniProd(p.prodSend)}
+        </div>
+        <div>
+          <div class="text-[11px] font-semibold text-np-graphite mb-1"><i class="fa-solid fa-arrow-down-to-bracket text-sky-600 mr-1"></i>Топ — Отримання</div>
+          ${miniProd(p.prodRecv)}
+        </div>
+      </div>
+    </div>
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">Матриця потоків (Звідки → Куди)</div>
+      ${Object.entries(p.flows).map(([k,v])=>{
+        const max=Math.max(...Object.values(p.flows));
+        return `<div class="flex items-center gap-2 text-[11px] mb-1.5">
+          <span class="w-40 text-np-graphite">${k.replace('→','<i class=\"fa-solid fa-arrow-right-long mx-1 text-np-red\"></i>')}</span>
+          <div class="flex-1 bg-np-bg rounded h-4 overflow-hidden"><div class="h-full bg-np-graphite/70" style="width:${v/max*100}%"></div></div>
+          <span class="w-8 text-right font-semibold">${v}%</span></div>`;
+      }).join('')}
+    </div>
+
+    ${sectionTitle('4','Операційна ефективність','fa-gauge-high')}
+    <div class="grid grid-cols-1 gap-3">
+      <div class="kpi p-3">
+        <div class="text-[12px] text-np-slate mb-2">Швидкість забору (час у комірці)</div>
+        <div class="flex items-end gap-1.5 h-24">
+          ${p.pickupSpeed.map(s=>{const max=Math.max(...p.pickupSpeed.map(x=>x.v));
+            return `<div class="flex-1 flex flex-col items-center justify-end gap-1">
+              <span class="text-[10px] font-semibold">${s.v}%</span>
+              <div class="w-full rounded-t" style="height:${s.v/max*100}%;background:linear-gradient(180deg,#DA291C,#f97316)"></div>
+              <span class="text-[9px] text-np-slate text-center leading-none">${s.label}</span></div>`;}).join('')}
+        </div>
+      </div>
+      <div class="kpi p-3 flex items-center gap-4 border-l-4 border-np-red">
+        <div class="text-center">
+          <div class="text-3xl font-extrabold text-np-red leading-none">${p.redirects.pct}%</div>
+          <div class="text-[10px] text-np-slate mt-1">переадресацій</div>
+        </div>
+        <div class="text-[12px] text-np-graphite">
+          <b>${fmt(p.redirects.en)} ЕН</b> переадресовано через дефіцит вільних комірок.
+          <div class="text-[11px] text-np-slate mt-1">Індикатор перевантаження локації.</div>
+        </div>
+      </div>
+    </div>
+
+    ${sectionTitle('5','Профіль та поведінка клієнта','fa-user-tag')}
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">Гео-тип клієнта (за годинами активності)</div>
+      <div class="flex h-8 rounded overflow-hidden text-[11px] font-semibold text-white">
+        <div class="bg-indigo-600 flex items-center justify-center" style="width:${p.nightShare}%"><i class="fa-solid fa-moon mr-1"></i>${p.nightShare}%</div>
+        <div class="bg-amber-500 flex items-center justify-center" style="width:${100-p.nightShare}%"><i class="fa-solid fa-sun mr-1"></i>${100-p.nightShare}%</div>
+      </div>
+      <div class="flex justify-between text-[10px] text-np-slate mt-1"><span>Нічний (живе тут)</span><span>Денний (працює поруч)</span></div>
+    </div>
+    <div class="kpi p-3">
+      <div class="text-[12px] text-np-slate mb-2">Маркетинговий профіль (RFM / CVO) — локація vs корпорація</div>
+      <div class="grid grid-cols-2 gap-2">
+        ${p.rfm.map(s=>{
+          const diff = s.loc - s.corp;
+          const cls = diff>=0?'text-green-600':'text-np-red';
+          return `<div class="border border-np-line rounded-lg p-2">
+            <div class="text-[11px] font-semibold text-np-graphite">${s.seg}</div>
+            <div class="flex items-end gap-2 mt-1">
+              <span class="text-xl font-bold text-np-ink">${s.loc}%</span>
+              <span class="${cls} text-[11px] font-semibold">${diff>=0?'+':''}${diff} п.п.</span>
+            </div>
+            <div class="text-[10px] text-np-slate">корп: ${s.corp}%</div>
+          </div>`;}).join('')}
+      </div>
+    </div>
+
+    ${sectionTitle('6','Спец-вантажі та фінанси','fa-tags')}
+    <div class="grid grid-cols-2 gap-3">
+      <div class="kpi p-3">
+        <div class="text-[12px] text-np-slate mb-2"><i class="fa-solid fa-cart-shopping mr-1 text-np-red"></i>Маркетплейси</div>
+        ${Object.entries(p.marketplaces).map(([k,v])=>{const max=Math.max(...Object.values(p.marketplaces));
+          return `<div class="flex items-center gap-2 text-[11px] mb-1"><span class="w-16">${k}</span>
+          <div class="flex-1 bg-np-bg rounded h-3.5 overflow-hidden"><div class="h-full bg-np-red/70" style="width:${v/max*100}%"></div></div>
+          <span class="w-7 text-right font-semibold">${v}%</span></div>`;}).join('')}
+      </div>
+      <div class="kpi p-3 flex flex-col items-center justify-center">
+        <div class="text-[12px] text-np-slate mb-1"><i class="fa-solid fa-earth-europe mr-1 text-sky-600"></i>Імпорт</div>
+        <div class="text-3xl font-extrabold text-sky-600">${p.importPct}%</div>
+        <div class="text-[10px] text-np-slate">міжнародних посилок</div>
+      </div>
+      <div class="kpi p-3 col-span-2">
+        <div class="text-[12px] text-np-slate mb-2"><i class="fa-solid fa-money-bill-wave mr-1 text-green-600"></i>Післяплата (наложка)</div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div><div class="text-[10px] text-np-slate">Загальна сума</div><div class="font-bold text-np-ink text-[13px]">${money(p.cod.totalSum)}</div></div>
+          <div><div class="text-[10px] text-np-slate">Сер.чек (відпр.)</div><div class="font-bold text-np-ink text-[13px]">${money(p.cod.avgSend)}</div></div>
+          <div><div class="text-[10px] text-np-slate">Сер.чек (отрим.)</div><div class="font-bold text-np-ink text-[13px]">${money(p.cod.avgRecv)}</div></div>
+        </div>
+        <div class="flex justify-center gap-4 mt-2 text-[10px] text-np-slate">
+          <span>Відправка: <b>${p.cod.sendCount} ЕН</b></span><span>Отримання: <b>${p.cod.recvCount} ЕН</b></span>
+        </div>
+      </div>
+      <div class="kpi p-3 col-span-2">
+        <div class="text-[12px] text-np-slate mb-2"><i class="fa-solid fa-coins mr-1 text-amber-600"></i>Оціночна вартість (розподіл)</div>
+        <div class="flex items-end gap-2 h-20">
+          ${p.valuation.map(v=>{const max=Math.max(...p.valuation.map(x=>x.v));
+            return `<div class="flex-1 flex flex-col items-center justify-end gap-1">
+              <span class="text-[10px] font-semibold">${v.v}%</span>
+              <div class="w-full rounded-t bg-amber-500" style="height:${v.v/max*100}%"></div>
+              <span class="text-[9px] text-np-slate">${v.label}</span></div>`;}).join('')}
+        </div>
+      </div>
+    </div>
+
+    ${sectionTitle('7','Теплова карта активності','fa-calendar-week')}
+    <div class="kpi p-3">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[12px] text-np-slate">Логи активності · день × година</span>
+        <div class="seg" id="heat-toggle">
+          <button data-h="all" class="on">Всього</button>
+          <button data-h="send">Відправка</button>
+          <button data-h="recv">Отримання</button>
+        </div>
+      </div>
+      <div id="heatmap-host" class="overflow-x-auto"></div>
+    </div>
+
+    <div class="text-center text-[10px] text-np-slate pt-2 pb-6">
+      Джерела: Report_HeatMap_refact_WhData_v · _Rentability_and_Rent_v · _dim_bielik_dev_v · _UserPoints_not_in_Buffer_v
+    </div>
+  </div>`;
+}
+
+function sectionTitle(n,txt,icon){
+  return `<div class="flex items-center gap-2 pt-1">
+    <span class="w-6 h-6 rounded bg-np-graphite text-white text-[11px] flex items-center justify-center font-bold">${n}</span>
+    <h3 class="text-[13px] font-bold text-np-ink uppercase tracking-wide"><i class="fa-solid ${icon} text-np-red mr-1"></i>${txt}</h3>
+    <div class="flex-1 h-px bg-np-line"></div>
+  </div>`;
+}
+function miniProd(arr){
+  const max=Math.max(...arr.map(x=>x.v));
+  return arr.map(x=>`<div class="flex items-center gap-2 text-[11px] mb-1">
+    <span class="w-20 truncate text-np-slate">${x.p}</span>
+    <div class="flex-1 bg-np-bg rounded h-3 overflow-hidden"><div class="h-full bg-np-graphite/60" style="width:${x.v/max*100}%"></div></div>
+    <span class="w-6 text-right">${x.v}</span></div>`).join('');
+}
+
+/* ---------- Інтерактив усередині картки (графіки, перемикачі) ---------- */
+function wireDetail(p){
+  // Графік помісячної динаміки + фінансовий перемикач
+  const ctx = document.getElementById('chart-monthly');
+  let revMode = 'gross';
+  const revSumEl = document.getElementById('rev-sum');
+
+  function revData(){ return p.monthly.map(m=> revMode==='gross'?m.grossRev:m.localRev); }
+  function updRevSum(){ revSumEl.textContent = money(revData().reduce((a,b)=>a+b,0)); }
+
+  const chart = new Chart(ctx, {
+    data: {
+      labels: p.monthly.map(m=>m.m),
+      datasets: [
+        { type:'bar', label:'ЕН', data:p.monthly.map(m=>m.en), backgroundColor:'#DA291C', borderRadius:3, yAxisID:'y' },
+        { type:'line', label:'Дохід ₴', data:revData(), borderColor:'#2B2B2B', backgroundColor:'#2B2B2B',
+          tension:.35, yAxisID:'y1', pointRadius:2 },
+      ]
+    },
+    options:{
+      responsive:true, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{labels:{boxWidth:10,font:{size:10}}} },
+      scales:{
+        y:{ position:'left', grid:{color:'#eef0f2'}, ticks:{font:{size:9}} },
+        y1:{ position:'right', grid:{display:false}, ticks:{font:{size:9}} },
+        x:{ grid:{display:false}, ticks:{font:{size:9}} }
+      }
+    }
+  });
+  charts.push(chart);
+  updRevSum();
+
+  document.querySelectorAll('#rev-toggle button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('#rev-toggle button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      revMode = b.getAttribute('data-rev');
+      chart.data.datasets[1].data = revData();
+      chart.update();
+      updRevSum();
+    });
+  });
+
+  // Heatmap + таби
+  let heatMode='all';
+  renderHeatmap(p.heat[heatMode]);
+  document.querySelectorAll('#heat-toggle button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('#heat-toggle button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      heatMode=b.getAttribute('data-h');
+      renderHeatmap(p.heat[heatMode]);
+    });
+  });
+}
+
+function renderHeatmap(grid){
+  const days=['Пн','Вт','Ср','Чт','Пт','Сб','Нд'];
+  const max=Math.max(...grid.flat(),1);
+  let html='<table class="text-[8px] border-collapse"><thead><tr><th></th>';
+  for(let h=0;h<24;h++) html+=`<th class="text-np-slate font-normal px-0 ${h%2?'':'opacity-100'}">${h%2?'':h}</th>`;
+  html+='</tr></thead><tbody>';
+  grid.forEach((row,d)=>{
+    html+=`<tr><td class="text-np-slate pr-1 font-medium">${days[d]}</td>`;
+    row.forEach(v=>{
+      const t=v/max;
+      const col=densityColor(v,max);
+      html+=`<td><div class="hm-cell" style="width:13px;height:13px;background:${col};opacity:${0.25+t*0.75}" title="${v} логів"></div></td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('heatmap-host').innerHTML=html;
+}
+
+/* ================================================================
+   ЗАПУСК
+================================================================ */
+buildBaseData();
+initGeoSelects();
+initInfraSegs();
+bindFilters();
+initLasso();
+setTool('pan');
+renderMap();
+</script>
+</body>
+</html>
