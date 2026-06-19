@@ -17,6 +17,10 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const gridRef = useRef<L.LayerGroup | null>(null)
+  const tipRef = useRef<L.Tooltip | null>(null)
+  // Для тултіпа к-сті клієнтів у квадраті: проєкція + лічильники по клітинах
+  const projRef = useRef<{ cLat: number; cLng: number; degLat: number; degLng: number } | null>(null)
+  const binRef = useRef<Map<string, number>>(new Map())
   const [mode, setMode] = useState<Mode>('all')
 
   // Центр поштомата (та сама проєкція, що й на головній карті)
@@ -55,6 +59,24 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
 
     gridRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
+
+    // Тултіп к-сті клієнтів у квадраті при наведенні
+    const tip = L.tooltip({ direction: 'top', offset: [0, -4], className: 'cap-tip', opacity: 1 })
+    tipRef.current = tip
+    map.on('mousemove', (e: L.LeafletMouseEvent) => {
+      const proj = projRef.current
+      if (!proj) return
+      const gx = Math.floor((e.latlng.lng - proj.cLng) / proj.degLng)
+      const gy = Math.floor((e.latlng.lat - proj.cLat) / proj.degLat)
+      const n = binRef.current.get(`${gx}_${gy}`)
+      if (!n) {
+        map.closeTooltip(tip)
+        return
+      }
+      tip.setLatLng(e.latlng).setContent(`<b>${n} клієнтів</b> у квадраті`).openOn(map)
+    })
+    map.on('mouseout', () => map.closeTooltip(tip))
+
     setTimeout(() => map.invalidateSize(), 80)
     return () => {
       map.remove()
@@ -70,21 +92,27 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
     group.clearLayers()
 
     // Агрегація точок у квадрати AUD_CELL_M метрів навколо поштомата
-    const bins = new Map<string, { gx: number; gy: number; w: number }>()
+    // (n — к-сть клієнтів у квадраті, w — сумарна вага для кольору)
+    const bins = new Map<string, { gx: number; gy: number; w: number; n: number }>()
     postomat.audience
       .filter((a) => mode === 'all' || a.kind === mode)
       .forEach((a) => {
         const gx = Math.floor(a.dx / AUD_CELL_M)
         const gy = Math.floor(a.dy / AUD_CELL_M)
         const key = `${gx}_${gy}`
-        const b = bins.get(key) ?? { gx, gy, w: 0 }
+        const b = bins.get(key) ?? { gx, gy, w: 0, n: 0 }
         b.w += a.w
+        b.n += 1
         bins.set(key, b)
       })
 
     const max = Math.max(...[...bins.values()].map((b) => b.w), 1)
     const degLat = AUD_CELL_M / MPDL
     const degLng = AUD_CELL_M / (MPDL * Math.cos((cLat * Math.PI) / 180))
+
+    // Дані для тултіпа: проєкція та лічильники клієнтів по клітинах
+    projRef.current = { cLat, cLng, degLat, degLng }
+    binRef.current = new Map([...bins.values()].map((b) => [`${b.gx}_${b.gy}`, b.n]))
 
     bins.forEach((b) => {
       const south = cLat + b.gy * degLat
