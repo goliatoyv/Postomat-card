@@ -4,17 +4,19 @@ import 'leaflet/dist/leaflet.css'
 import { Home, Briefcase, Users } from 'lucide-react'
 import type { PostomatDetail } from '../types'
 import { GRID_DIMS } from '../data/mockData'
+import { densityColor } from '../lib/format'
 
 const CENTER: [number, number] = [50.4501, 30.5234]
 const MPDL = 111320
+const AUD_CELL_M = 200 // розмір квадрата гео-сітки аудиторії, м
 
 type Mode = 'all' | 'home' | 'work'
 
-/** Гео-теплокарта розміщення аудиторії (клієнтів) поштомата */
+/** Гео-теплокарта розміщення аудиторії (клієнтів) — квадратна сітка щільності */
 export default function AudienceMap({ postomat, grid }: { postomat: PostomatDetail; grid: number }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
-  const heatRef = useRef<L.Layer | null>(null)
+  const gridRef = useRef<L.LayerGroup | null>(null)
   const [mode, setMode] = useState<Mode>('all')
 
   // Центр поштомата (та сама проєкція, що й на головній карті)
@@ -51,6 +53,7 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
       zIndexOffset: 1000,
     }).addTo(map)
 
+    gridRef.current = L.layerGroup().addTo(map)
     mapRef.current = map
     setTimeout(() => map.invalidateSize(), 80)
     return () => {
@@ -60,47 +63,50 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Оновлення теплового шару при зміні режиму.
-  // leaflet.heat очікує глобальний L, тож виставляємо window.L і
-  // підключаємо плагін динамічно (щоб не валити весь бандл при ESM-збірці).
+  // Перемальовування квадратної сітки щільності аудиторії
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    let cancelled = false
+    const group = gridRef.current
+    if (!group) return
+    group.clearLayers()
 
-    const pts = postomat.audience
+    // Агрегація точок у квадрати AUD_CELL_M метрів навколо поштомата
+    const bins = new Map<string, { gx: number; gy: number; w: number }>()
+    postomat.audience
       .filter((a) => mode === 'all' || a.kind === mode)
-      .map((a) => {
-        const lat = cLat + a.dy / MPDL
-        const lng = cLng + a.dx / (MPDL * Math.cos((lat * Math.PI) / 180))
-        return [lat, lng, a.w] as [number, number, number]
+      .forEach((a) => {
+        const gx = Math.floor(a.dx / AUD_CELL_M)
+        const gy = Math.floor(a.dy / AUD_CELL_M)
+        const key = `${gx}_${gy}`
+        const b = bins.get(key) ?? { gx, gy, w: 0 }
+        b.w += a.w
+        bins.set(key, b)
       })
 
-    ;(window as unknown as { L: typeof L }).L = L
-    import('leaflet.heat')
-      .then(() => {
-        if (cancelled) return
-        if (heatRef.current) {
-          map.removeLayer(heatRef.current)
-          heatRef.current = null
-        }
-        const heatFn = (L as unknown as { heatLayer?: (p: unknown, o: unknown) => L.Layer }).heatLayer
-        if (!heatFn) return
-        heatRef.current = heatFn(pts, {
-          radius: 22,
-          blur: 18,
-          maxZoom: 17,
-          max: 1,
-          gradient: { 0.2: '#1d4ed8', 0.4: '#16a34a', 0.6: '#eab308', 0.8: '#f97316', 1: '#DA291C' },
-        }).addTo(map)
-      })
-      .catch(() => {
-        /* плагін недоступний — мовчки лишаємо мапу без теплового шару */
-      })
+    const max = Math.max(...[...bins.values()].map((b) => b.w), 1)
+    const degLat = AUD_CELL_M / MPDL
+    const degLng = AUD_CELL_M / (MPDL * Math.cos((cLat * Math.PI) / 180))
 
-    return () => {
-      cancelled = true
-    }
+    bins.forEach((b) => {
+      const south = cLat + b.gy * degLat
+      const north = cLat + (b.gy + 1) * degLat
+      const west = cLng + b.gx * degLng
+      const east = cLng + (b.gx + 1) * degLng
+      const t = b.w / max
+      L.rectangle(
+        [
+          [south, west],
+          [north, east],
+        ],
+        {
+          stroke: true,
+          color: '#ffffff',
+          weight: 0.5,
+          fillColor: densityColor(b.w, max),
+          fillOpacity: 0.2 + t * 0.55,
+          interactive: false,
+        },
+      ).addTo(group)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, postomat.id])
 
