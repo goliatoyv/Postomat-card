@@ -6,4 +6,16 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: process.env.GITHUB_PAGES ? '/Postomat-card/' : '/',
+  build: {
+    rollupOptions: {
+      // Стабільні (без хешу) імена файлів: навіть закешований index.html
+      // завжди знаходить актуальні asset-и → жодного 404/«білого екрана»
+      // через застарілий кеш GitHub Pages після частих деплоїв.
+      output: {
+        entryFileNames: 'assets/app.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
+      },
+    },
+  },
 })
