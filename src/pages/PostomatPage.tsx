@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { buildData } from '../data/mockData'
 import { fmt, statusOf } from '../lib/format'
+import AudienceMap from '../components/AudienceMap'
 import {
   MonthlyBlock,
   ConcentrationBlock,
@@ -81,8 +82,14 @@ export default function PostomatPage({ grid, id }: { grid: number; id: number })
         </div>
       </header>
 
-      {/* Контент: masonry-колонки */}
+      {/* Контент */}
       <main className="flex-1 overflow-y-auto p-5">
+        {/* Гео-теплокарта аудиторії — на всю ширину */}
+        <div className="mx-auto mb-4 max-w-[1400px]">
+          <AudienceMap postomat={p} grid={grid} />
+        </div>
+
+        {/* Решта блоків: masonry-колонки */}
         <div className="mx-auto max-w-[1400px] [column-fill:_balance] gap-4 columns-1 md:columns-2 xl:columns-3">
           <MonthlyBlock p={p} />
           <HeatmapBlock p={p} />

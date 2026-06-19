@@ -210,6 +210,24 @@ function makePostomatDetail(id: number, cell: Cell): PostomatDetail {
     recv: makeHeat(0.6),
   }
 
+  // Гео-розміщення аудиторії: «домашній» кластер біля поштомата +
+  // «робочий» кластер зі зсувом + розсіяний фон (у метрах від точки).
+  const gauss = (mean: number, sd: number) => {
+    const u = Math.max(1e-9, r())
+    return mean + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r())
+  }
+  const audience: { dx: number; dy: number; w: number; kind: 'home' | 'work' }[] = []
+  const workAngle = r() * Math.PI * 2
+  const workDist = 800 + r() * 1000
+  const wx = Math.cos(workAngle) * workDist
+  const wy = Math.sin(workAngle) * workDist
+  for (let i = 0; i < 120 + rndInt(r, 0, 70); i++)
+    audience.push({ dx: gauss(0, 320), dy: gauss(0, 320), w: 0.6 + r() * 0.4, kind: 'home' })
+  for (let i = 0; i < 80 + rndInt(r, 0, 60); i++)
+    audience.push({ dx: gauss(wx, 420), dy: gauss(wy, 420), w: 0.5 + r() * 0.4, kind: 'work' })
+  for (let i = 0; i < 40; i++)
+    audience.push({ dx: gauss(0, 1500), dy: gauss(0, 1500), w: 0.3 + r() * 0.3, kind: r() < 0.5 ? 'home' : 'work' })
+
   const totalEN = monthly.reduce((s, m) => s + m.en, 0)
   const totalClients = Math.round(monthly.reduce((s, m) => s + m.clients, 0) / 12)
   const cellsCount = rndInt(r, 30, 108)
@@ -242,5 +260,6 @@ function makePostomatDetail(id: number, cell: Cell): PostomatDetail {
     cod,
     valuation,
     heat,
+    audience,
   }
 }
