@@ -3,7 +3,7 @@ import { Boxes, RotateCcw } from 'lucide-react'
 import type { Filters } from './types'
 import { buildData } from './data/mockData'
 import FilterBar from './components/FilterBar'
-import MapHeatmap from './components/MapHeatmap'
+import MapLeaflet from './components/MapLeaflet'
 import PostomatPage from './pages/PostomatPage'
 import { useHashRoute } from './lib/useHashRoute'
 
@@ -68,7 +68,7 @@ function Dashboard() {
       </header>
 
       <main className="relative flex-1 overflow-hidden">
-        <MapHeatmap data={data} filters={filters} onLasso={(pts) => update({ lasso: pts })} />
+        <MapLeaflet data={data} filters={filters} onLasso={(pts) => update({ lasso: pts })} />
       </main>
     </div>
   )
