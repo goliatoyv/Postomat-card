@@ -4,6 +4,15 @@ export const fmt = (n: number) => n.toLocaleString('uk-UA')
 export const money = (n: number) =>
   n.toLocaleString('uk-UA', { maximumFractionDigits: 0 }) + ' ₴'
 
+/** Статус утилізації поштомата → колір маркера + підпис */
+export function statusOf(util: number): { color: string; label: string } {
+  if (util >= 95) return { color: '#DA291C', label: 'критична' }
+  if (util >= 75) return { color: '#f97316', label: 'висока' }
+  if (util >= 50) return { color: '#0284c7', label: 'оптимальна' }
+  return { color: '#16a34a', label: 'низька' }
+}
+
+
 /** Детермінований ГПВЧ — стабільні дані між перемиканнями фільтрів */
 export function seeded(seed: number): () => number {
   let s = seed >>> 0

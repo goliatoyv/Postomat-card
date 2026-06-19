@@ -211,6 +211,9 @@ function makePostomatDetail(id: number, cell: Cell): PostomatDetail {
 
   const totalEN = monthly.reduce((s, m) => s + m.en, 0)
   const totalClients = Math.round(monthly.reduce((s, m) => s + m.clients, 0) / 12)
+  const cellsCount = rndInt(r, 30, 108)
+  // Утилізація = місячний потік ЕН відносно ємності комірок (≈28 оборотів/міс)
+  const util = Math.min(120, Math.round((totalEN / 12 / (cellsCount * 28)) * 100))
 
   return {
     id,
@@ -218,7 +221,8 @@ function makePostomatDetail(id: number, cell: Cell): PostomatDetail {
     name: `Поштомат №${id} (${cell.city})`,
     address: `${cell.city}, вул. ${pick(r, ['Соборна', 'Шевченка', 'Хрещатик', 'Перемоги', 'Незалежності'])}, ${rndInt(r, 1, 120)}`,
     rating: (r() * 1.4 + 3.5).toFixed(1),
-    cells: rndInt(r, 30, 108),
+    cells: cellsCount,
+    util,
     totalEN,
     totalClients,
     monthly,

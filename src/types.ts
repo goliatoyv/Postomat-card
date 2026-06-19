@@ -69,6 +69,7 @@ export interface PostomatDetail {
   address: string
   rating: string
   cells: number
+  util: number
   totalEN: number
   totalClients: number
   monthly: MonthlyPoint[]
