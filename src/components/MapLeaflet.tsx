@@ -46,6 +46,11 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
   const toolRef = useRef<'pan' | 'lasso'>('pan')
   const lastGrid = useRef<number>(0)
 
+  // Для тултіпа ємності квадрата: проєкція, довідник клітин і сам тултіп
+  const projRef = useRef<{ north: number; west: number; degLat: number; degLng: number } | null>(null)
+  const cellMapRef = useRef<Map<string, Cell>>(new Map())
+  const tipRef = useRef<L.Tooltip | null>(null)
+
   // KPI overlay refs (оновлюємо без ререндеру React)
   const kpiPm = useRef<HTMLSpanElement>(null)
   const kpiSq = useRef<HTMLSpanElement>(null)
@@ -93,6 +98,37 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
       if (pts.length > 2) onLasso(pts.map((p) => ({ x: p.lng, y: p.lat })))
     })
 
+    // Тултіп ємності квадрата (к-сть клієнтів) — для будь-якого квадрата
+    const tip = L.tooltip({ direction: 'top', offset: [0, -4], className: 'cap-tip', opacity: 1 })
+    tipRef.current = tip
+    map.on('mousemove', (e: L.LeafletMouseEvent) => {
+      if (drawing || toolRef.current === 'lasso' || !projRef.current) {
+        map.closeTooltip(tip)
+        return
+      }
+      const { north, west, degLat, degLng } = projRef.current
+      const gx = Math.floor((e.latlng.lng - west) / degLng)
+      const gy = Math.floor((north - e.latlng.lat) / degLat)
+      const cell = cellMapRef.current.get(`${gx}_${gy}`)
+      if (!cell) {
+        map.closeTooltip(tip)
+        return
+      }
+      const objs: string[] = []
+      if (cell.postomat) objs.push('поштомат')
+      if (cell.cargo) objs.push('вантажне')
+      if (cell.branch) objs.push('відділення')
+      if (cell.pudo) objs.push('ПУДО')
+      tip
+        .setLatLng(e.latlng)
+        .setContent(
+          `<b>Ємність: ${cell.clients} клієнтів</b>` +
+            `<div style="opacity:.7">${objs.length ? objs.join(' · ') : 'без точок доставки'}</div>`,
+        )
+        .openOn(map)
+    })
+    map.on('mouseout', () => map.closeTooltip(tip))
+
     setTimeout(() => map.invalidateSize(), 100)
     return () => {
       map.remove()
@@ -115,6 +151,10 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
     const north = CENTER[0] + (rows * degLat) / 2
     const west = CENTER[1] - (cols * degLng) / 2
     const maxClients = Math.max(...cells.map((c) => c.clients), 1)
+
+    // Дані для тултіпа ємності квадрата
+    projRef.current = { north, west, degLat, degLng }
+    cellMapRef.current = new Map(cells.map((c) => [`${c.gx}_${c.gy}`, c]))
 
     const passes = (cell: Cell): boolean => {
       if (filters.oblast && cell.oblast !== filters.oblast) return false
