@@ -22,7 +22,12 @@ export function useHashRoute(): Route {
   return route
 }
 
-/** URL картки поштомата для відкриття в новій вкладці */
+/** Hash картки поштомата (навігація в тій самій вкладці) */
 export function postomatHref(grid: number, id: number): string {
-  return `${window.location.pathname}${window.location.search}#/p/${grid}/${id}`
+  return `#/p/${grid}/${id}`
+}
+
+/** Перехід на картку поштомата в поточній вкладці */
+export function goToPostomat(grid: number, id: number): void {
+  window.location.hash = `/p/${grid}/${id}`
 }

@@ -25,11 +25,13 @@ export function MonthlyBlock({ p }: { p: PostomatDetail }) {
   const revData = p.monthly.map((m) => (rev === 'gross' ? m.grossRev : m.localRev))
   const revSum = revData.reduce((a, b) => a + b, 0)
   const enMax = Math.max(...p.monthly.map((m) => m.en), 1)
+  const cliMax = Math.max(...p.monthly.map((m) => m.clients), 1)
   const revMax = Math.max(...revData, 1)
 
   const W = 320
   const H = 130
   const bw = W / p.monthly.length
+  const y = (v: number, max: number) => H - 16 - (v / max) * (H - 24)
 
   return (
     <Card title="Динаміка та обсяги (12 міс.)">
@@ -53,35 +55,49 @@ export function MonthlyBlock({ p }: { p: PostomatDetail }) {
           <div className="text-[10px] text-np-slate">Сер. ЕН/міс</div>
           <div className="text-lg font-bold text-np-ink">{fmt(Math.round(p.totalEN / 12))}</div>
         </div>
+        <div>
+          <div className="text-[10px] text-np-slate">Сер. клієнтів/міс</div>
+          <div className="text-lg font-bold text-np-ink">{fmt(p.totalClients)}</div>
+        </div>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        {/* ЕН — стовпчики */}
         {p.monthly.map((m, i) => {
           const barH = (m.en / enMax) * (H - 24)
           return (
             <rect key={i} x={i * bw + 3} y={H - 16 - barH} width={bw - 6} height={barH} rx={2} fill="#DA291C" />
           )
         })}
+        {/* Клієнти — лінія */}
+        <polyline
+          fill="none"
+          stroke="#0284c7"
+          strokeWidth={1.5}
+          points={p.monthly.map((m, i) => `${i * bw + bw / 2},${y(m.clients, cliMax)}`).join(' ')}
+        />
+        {/* Дохід — лінія (за перемикачем) */}
         <polyline
           fill="none"
           stroke="#2B2B2B"
           strokeWidth={1.5}
-          points={revData.map((v, i) => `${i * bw + bw / 2},${H - 16 - (v / revMax) * (H - 24)}`).join(' ')}
+          strokeDasharray="4 3"
+          points={revData.map((v, i) => `${i * bw + bw / 2},${y(v, revMax)}`).join(' ')}
         />
-        {revData.map((v, i) => (
-          <circle key={i} cx={i * bw + bw / 2} cy={H - 16 - (v / revMax) * (H - 24)} r={2} fill="#2B2B2B" />
-        ))}
         {p.monthly.map((m, i) => (
           <text key={i} x={i * bw + bw / 2} y={H - 4} fontSize={7} textAnchor="middle" fill="#5A5F66">
             {m.m}
           </text>
         ))}
       </svg>
-      <div className="mt-1 flex gap-4 text-[10px] text-np-slate">
+      <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-np-slate">
         <span className="flex items-center gap-1">
           <span className="inline-block h-2 w-2 bg-np-red" /> ЕН
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-0.5 w-3 bg-np-graphite" /> Дохід ₴
+          <span className="inline-block h-0.5 w-3 bg-sky-600" /> Клієнти
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-0.5 w-3 border-t border-dashed border-np-graphite" /> Дохід ₴
         </span>
       </div>
     </Card>
@@ -90,18 +106,37 @@ export function MonthlyBlock({ p }: { p: PostomatDetail }) {
 
 /* ---------- Блок 2 ---------- */
 export function ConcentrationBlock({ p }: { p: PostomatDetail }) {
-  const max = Math.max(...p.concentration.map((c) => c.v))
+  const [dim, setDim] = useState<'en' | 'grn'>('en')
+  const vals = p.concentration.map((c) => (dim === 'en' ? c.en : c.grn))
+  const max = Math.max(...vals, 1)
   return (
     <Card title="Концентрація портфеля">
-      <div className="mb-2 text-[11px] text-np-slate">Доля локації в обсязі клієнта</div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] text-np-slate">Доля локації в обсязі клієнта</span>
+        <Toggle
+          value={dim}
+          onChange={setDim}
+          options={[
+            { key: 'en', label: 'за ЕН' },
+            { key: 'grn', label: 'за грн' },
+          ]}
+        />
+      </div>
       <div className="space-y-1.5">
-        {p.concentration.map((c) => (
-          <div key={c.label} className="flex items-center gap-2 text-[11px]">
-            <span className="w-14 text-np-slate">{c.label}</span>
-            <Bar value={c.v} max={max} color="#DA291C" opacity={0.8} />
-            <span className="w-8 text-right font-semibold">{c.v}</span>
-          </div>
-        ))}
+        {p.concentration.map((c) => {
+          const v = dim === 'en' ? c.en : c.grn
+          return (
+            <div key={c.label} className="flex items-center gap-2 text-[11px]">
+              <span className="w-14 text-np-slate">{c.label}</span>
+              <Bar value={v} max={max} color={dim === 'en' ? '#DA291C' : '#0284c7'} opacity={0.8} />
+              <span className="w-12 text-right font-semibold">{dim === 'en' ? `${v}%` : `${v}%`}</span>
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-2 text-[10px] text-np-slate">
+        Розподіл клієнтів за часткою, яку ця локація займає в їхньому загальному обсязі{' '}
+        {dim === 'en' ? 'відправлень (ЕН)' : 'витрат (грн)'}.
       </div>
     </Card>
   )

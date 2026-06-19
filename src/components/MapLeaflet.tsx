@@ -5,7 +5,27 @@ import { Move, Lasso, Eraser } from 'lucide-react'
 import type { Cell, Filters, InfraKey } from '../types'
 import type { GeneratedData } from '../data/mockData'
 import { densityColor, statusOf, fmt, pointInPoly } from '../lib/format'
-import { postomatHref } from '../lib/useHashRoute'
+import { postomatHref, goToPostomat } from '../lib/useHashRoute'
+
+// ── Іконки за типом точки доставки (inline SVG у divIcon) ──────
+const ICON_SVG = {
+  // Поштомат — комірковий шафовий блок
+  postomat: (c: string) =>
+    `<svg viewBox="0 0 24 24" width="20" height="20"><rect x="4" y="2" width="16" height="20" rx="2.5" fill="${c}" stroke="#fff" stroke-width="1.6"/><line x1="4" y1="9" x2="20" y2="9" stroke="#fff" stroke-width="1.2"/><line x1="4" y1="15" x2="20" y2="15" stroke="#fff" stroke-width="1.2"/><circle cx="9" cy="5.6" r="1" fill="#fff"/><circle cx="9" cy="12" r="1" fill="#fff"/><circle cx="9" cy="18.2" r="1" fill="#fff"/></svg>`,
+  // Вантажне відділення — фура
+  cargo: () =>
+    `<svg viewBox="0 0 24 24" width="15" height="15"><rect x="1" y="6" width="12" height="9" rx="1" fill="#d97706" stroke="#fff" stroke-width="1.3"/><path d="M13 9h4l3 3v3h-7z" fill="#d97706" stroke="#fff" stroke-width="1.3"/><circle cx="6" cy="17" r="2" fill="#7c2d12" stroke="#fff" stroke-width="1"/><circle cx="16" cy="17" r="2" fill="#7c2d12" stroke="#fff" stroke-width="1"/></svg>`,
+  // Поштове відділення — будівля з вивіскою
+  branch: () =>
+    `<svg viewBox="0 0 24 24" width="15" height="15"><path d="M3 8l9-5 9 5v2H3z" fill="#0284c7" stroke="#fff" stroke-width="1.2"/><rect x="5" y="10" width="14" height="9" fill="#0284c7" stroke="#fff" stroke-width="1.2"/><rect x="10" y="13" width="4" height="6" fill="#fff"/></svg>`,
+  // ПУДО — торгова точка / пакет
+  pudo: () =>
+    `<svg viewBox="0 0 24 24" width="15" height="15"><path d="M7 8V6a5 5 0 0 1 10 0v2h2l1 13H4L5 8z" fill="#7c3aed" stroke="#fff" stroke-width="1.3"/><path d="M9 8V6a3 3 0 0 1 6 0v2" fill="none" stroke="#fff" stroke-width="1.2"/></svg>`,
+}
+
+function divIcon(html: string, size: number) {
+  return L.divIcon({ className: 'np-icon', html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+}
 
 interface Props {
   data: GeneratedData
@@ -16,12 +36,6 @@ interface Props {
 // Центр Києва — на нього проєктуємо абстрактну гео-сітку
 const CENTER: [number, number] = [50.4501, 30.5234]
 const METERS_PER_DEG_LAT = 111320
-
-const INFRA_DOT: Record<Exclude<InfraKey, 'postomat'>, string> = {
-  cargo: '#d97706',
-  branch: '#0284c7',
-  pudo: '#7c3aed',
-}
 
 export default function MapLeaflet({ data, filters, onLasso }: Props) {
   const elRef = useRef<HTMLDivElement>(null)
@@ -154,19 +168,22 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
         ).addTo(gridLayer.current!)
       }
 
-      // Інфра-точки (cargo/branch/pudo)
+      // Інфра-іконки (cargo/branch/pudo) — кожна зі своєю іконкою
       const extras: ('cargo' | 'branch' | 'pudo')[] = []
       if (cell.cargo && filters.infra.cargo !== 'no') extras.push('cargo')
       if (cell.branch && filters.infra.branch !== 'no') extras.push('branch')
       if (cell.pudo && filters.infra.pudo !== 'no') extras.push('pudo')
+      const LABELS: Record<'cargo' | 'branch' | 'pudo', string> = {
+        cargo: 'Вантажне відділення',
+        branch: 'Поштове відділення',
+        pudo: 'ПУДО (точка видачі)',
+      }
       extras.forEach((k, i) => {
-        L.circleMarker([cLat - degLat * 0.28, cLng + (i - (extras.length - 1) / 2) * degLng * 0.3], {
-          radius: 3,
-          color: '#fff',
-          weight: 1,
-          fillColor: INFRA_DOT[k],
-          fillOpacity: 1,
-        }).addTo(markerLayer.current!)
+        L.marker([cLat - degLat * 0.3, cLng + (i - (extras.length - 1) / 2) * degLng * 0.34], {
+          icon: divIcon(ICON_SVG[k](), 15),
+        })
+          .bindTooltip(LABELS[k], { direction: 'top' })
+          .addTo(markerLayer.current!)
       })
 
       // Маркер поштомата (колір = утилізація) + popup із кнопкою
@@ -176,12 +193,6 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
         shownPm++
         utilSum += det.util
 
-        const icon = L.divIcon({
-          className: 'pm-marker',
-          html: `<div style="width:15px;height:15px;border-radius:4px;background:${st.color};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
-          iconSize: [15, 15],
-          iconAnchor: [7, 7],
-        })
         const href = postomatHref(filters.grid, det.id)
         const popup = `<div style="min-width:190px;font-family:Inter,sans-serif">
             <div style="font-weight:700;font-size:13px;color:#1E1E1E">${det.name}</div>
@@ -191,16 +202,16 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
               <span>ЕН/рік: <b>${fmt(det.totalEN)}</b></span>
               <span style="color:${st.color}">утил. <b>${det.util}%</b></span>
             </div>
-            <a href="${href}" target="_blank" rel="noopener noreferrer"
+            <a href="${href}"
                style="display:block;text-align:center;background:#DA291C;color:#fff;padding:7px;border-radius:8px;text-decoration:none;font-weight:600;font-size:12px">
-               Відкрити картку ↗</a>
+               Відкрити картку →</a>
           </div>`
 
-        const m = L.marker([cLat, cLng], { icon })
+        const m = L.marker([cLat, cLng], { icon: divIcon(ICON_SVG.postomat(st.color), 22), zIndexOffset: 1000 })
           .bindPopup(popup, { closeButton: true, autoPan: false })
           .addTo(markerLayer.current!)
         m.on('mouseover', () => m.openPopup())
-        m.on('click', () => window.open(href, '_blank', 'noopener'))
+        m.on('click', () => goToPostomat(filters.grid, det.id))
       }
     })
 
@@ -287,8 +298,28 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
           <Leg c="#f97316" t="висока" />
           <Leg c="#DA291C" t="критич." />
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-np-line pt-2 text-[10px] text-np-slate">
+          <span className="font-semibold text-np-graphite">Типи:</span>
+          <IconLeg type="postomat" t="Поштомат" />
+          <IconLeg type="cargo" t="Вантажне" />
+          <IconLeg type="branch" t="Відділення" />
+          <IconLeg type="pudo" t="ПУДО" />
+        </div>
       </div>
     </div>
+  )
+}
+
+function IconLeg({ type, t }: { type: keyof typeof ICON_SVG; t: string }) {
+  const html = type === 'postomat' ? ICON_SVG.postomat('#5A5F66') : ICON_SVG[type]()
+  return (
+    <span className="flex items-center gap-1">
+      <span
+        className="inline-flex h-[15px] w-[15px] items-center justify-center"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {t}
+    </span>
   )
 }
 
