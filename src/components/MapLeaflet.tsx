@@ -150,9 +150,10 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
       const cLat = (cellNorth + cellSouth) / 2
       const cLng = (cellWest + cellEast) / 2
 
-      // Квадрат-теплокарта: прозорість росте зі щільністю; пусті майже невидимі
-      const t = cell.clients / maxClients
-      if (cell.clients > 12) {
+      // Квадрат-теплокарта: заповнюємо майже всі клітини; прозорість
+      // росте зі щільністю (слабкі — ледь помітні, щоб мапа проглядалась)
+      const t = Math.pow(cell.clients / maxClients, 0.7)
+      if (cell.clients > 1) {
         L.rectangle(
           [
             [cellSouth, cellWest],
@@ -163,7 +164,7 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
             color: '#ffffff',
             weight: 0.5,
             fillColor: densityColor(cell.clients, maxClients),
-            fillOpacity: 0.12 + t * 0.5,
+            fillOpacity: 0.18 + t * 0.5,
             interactive: false,
           },
         ).addTo(gridLayer.current!)

@@ -84,7 +84,9 @@ export function buildData(grid: number): GeneratedData {
       const cx = cols / 2
       const cy = rows / 2
       const dist = Math.hypot(gx - cx, gy - cy) / Math.hypot(cx, cy)
-      const clients = Math.max(0, Math.round(Math.max(0, (1 - dist) * 380 + (r() * 80 - 30))))
+      // Підлога щільності (+40..160), щоб майже всі клітини мали клієнтів
+      // і карта виглядала заповненою; центр лишається найгарячішим.
+      const clients = Math.round((1 - dist) * 320 + (r() * 120 + 40))
 
       const cell: Cell = {
         id: `${gx}-${gy}`,
