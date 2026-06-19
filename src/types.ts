@@ -74,7 +74,7 @@ export interface PostomatDetail {
   totalClients: number
   monthly: MonthlyPoint[]
   top: TopClient[]
-  concentration: Labeled[]
+  concentration: { label: string; en: number; grn: number }[]
   dims: Record<string, number>
   prodSend: { p: string; v: number }[]
   prodRecv: { p: string; v: number }[]

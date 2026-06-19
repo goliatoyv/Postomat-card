@@ -136,12 +136,13 @@ function makePostomatDetail(id: number, cell: Cell): PostomatDetail {
     }
   }).sort((a, b) => b.en - a.en)
 
+  // Концентрація: доля локації в обсязі клієнта — окремо за ЕН та за грн
   const concentration = [
-    { label: '100%', v: rndInt(r, 4, 12) },
-    { label: '90-99%', v: rndInt(r, 8, 18) },
-    { label: '75-89%', v: rndInt(r, 12, 24) },
-    { label: '50-74%', v: rndInt(r, 18, 30) },
-    { label: '<50%', v: rndInt(r, 20, 40) },
+    { label: '100%', en: rndInt(r, 4, 12), grn: rndInt(r, 3, 14) },
+    { label: '90-99%', en: rndInt(r, 8, 18), grn: rndInt(r, 7, 20) },
+    { label: '75-89%', en: rndInt(r, 12, 24), grn: rndInt(r, 10, 26) },
+    { label: '50-74%', en: rndInt(r, 18, 30), grn: rndInt(r, 16, 32) },
+    { label: '<50%', en: rndInt(r, 20, 40), grn: rndInt(r, 18, 42) },
   ]
 
   const dims: Record<string, number> = {
