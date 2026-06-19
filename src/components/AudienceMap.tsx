@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import 'leaflet.heat'
 import { Home, Briefcase, Users } from 'lucide-react'
 import type { PostomatDetail } from '../types'
 import { GRID_DIMS } from '../data/mockData'
@@ -61,14 +60,14 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Оновлення теплового шару при зміні режиму
+  // Оновлення теплового шару при зміні режиму.
+  // leaflet.heat очікує глобальний L, тож виставляємо window.L і
+  // підключаємо плагін динамічно (щоб не валити весь бандл при ESM-збірці).
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (heatRef.current) {
-      map.removeLayer(heatRef.current)
-      heatRef.current = null
-    }
+    let cancelled = false
+
     const pts = postomat.audience
       .filter((a) => mode === 'all' || a.kind === mode)
       .map((a) => {
@@ -76,13 +75,32 @@ export default function AudienceMap({ postomat, grid }: { postomat: PostomatDeta
         const lng = cLng + a.dx / (MPDL * Math.cos((lat * Math.PI) / 180))
         return [lat, lng, a.w] as [number, number, number]
       })
-    heatRef.current = L.heatLayer(pts, {
-      radius: 22,
-      blur: 18,
-      maxZoom: 17,
-      max: 1,
-      gradient: { 0.2: '#1d4ed8', 0.4: '#16a34a', 0.6: '#eab308', 0.8: '#f97316', 1: '#DA291C' },
-    }).addTo(map)
+
+    ;(window as unknown as { L: typeof L }).L = L
+    import('leaflet.heat')
+      .then(() => {
+        if (cancelled) return
+        if (heatRef.current) {
+          map.removeLayer(heatRef.current)
+          heatRef.current = null
+        }
+        const heatFn = (L as unknown as { heatLayer?: (p: unknown, o: unknown) => L.Layer }).heatLayer
+        if (!heatFn) return
+        heatRef.current = heatFn(pts, {
+          radius: 22,
+          blur: 18,
+          maxZoom: 17,
+          max: 1,
+          gradient: { 0.2: '#1d4ed8', 0.4: '#16a34a', 0.6: '#eab308', 0.8: '#f97316', 1: '#DA291C' },
+        }).addTo(map)
+      })
+      .catch(() => {
+        /* плагін недоступний — мовчки лишаємо мапу без теплового шару */
+      })
+
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, postomat.id])
 
