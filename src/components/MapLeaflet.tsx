@@ -57,9 +57,10 @@ export default function MapLeaflet({ data, filters, onLasso }: Props) {
     const map = L.map(elRef.current, {
       center: CENTER,
       zoom: 12,
-      zoomControl: true,
+      zoomControl: false, // власний контрол додаємо нижче, щоб не накладався на тулбар
       scrollWheelZoom: true,
     })
+    L.control.zoom({ position: 'bottomright' }).addTo(map)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap · © CARTO',
