@@ -88,6 +88,8 @@ export interface PostomatDetail {
   cod: Cod
   valuation: Labeled[]
   heat: Record<HeatMode, number[][]>
+  // Гео-розміщення аудиторії: зсуви точок клієнтів у метрах від поштомата
+  audience: { dx: number; dy: number; w: number; kind: 'home' | 'work' }[]
 }
 
 /** Стан глобальних фільтрів верхньої панелі */
